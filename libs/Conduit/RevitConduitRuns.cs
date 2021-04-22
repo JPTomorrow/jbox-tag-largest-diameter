@@ -46,9 +46,9 @@ namespace JPMorrow.Revit.ConduitRuns
         public void OverrideMaterialType(string type) => ConduitMaterialType = type;
 
         // string conversions
-        public string DiameterStr(ModelInfo info) => RMeasure.LengthFromDbl(info, Diameter);
-		public string LengthStr(ModelInfo info) => RMeasure.LengthFromDbl(info, Length);
-		public string FittingBendsStr(ModelInfo info) => RMeasure.AngleFromDouble(info, FittingBends);
+        public string DiameterStr(ModelInfo info) => RMeasure.LengthFromDbl(info.DOC, Diameter);
+		public string LengthStr(ModelInfo info) => RMeasure.LengthFromDbl(info.DOC, Length);
+		public string FittingBendsStr(ModelInfo info) => RMeasure.AngleFromDouble(info.DOC, FittingBends);
 
 		public string GetSets(ModelInfo info) {
 

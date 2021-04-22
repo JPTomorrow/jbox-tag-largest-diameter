@@ -36,5 +36,20 @@ namespace JPMorrow.Revit.RvtMiscUtil
 
 			return null;
 		}
+
+		/// <summary>
+        /// Convert a ConnectorSet into a list of connectors
+        /// </summary>
+		public static IEnumerable<Connector> GetConnectorListFromSet(ConnectorSet c) {
+
+			List<Connector> cc = new List<Connector>();
+			var it = c.ForwardIterator();
+
+			while(it.MoveNext()) {
+				cc.Add(it.Current as Connector);
+			}
+
+			return cc;
+		}
 	}
 }

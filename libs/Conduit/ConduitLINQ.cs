@@ -32,7 +32,7 @@ public static class ConduitLINQ
 		this Element conduit, ModelInfo info,
 		View3D view,  IEnumerable<BuiltInCategory> clash_categories, IEnumerable<BuiltInCategory> conduit_categories, out List<Element> next_racked_conduits, double chk_dist = -1)
 	{
-		double parse_len(string len_str) => RMeasure.LengthDbl(info, len_str);
+		double parse_len(string len_str) => RMeasure.LengthDbl(info.DOC, len_str);
 
 		if(chk_dist == -1) chk_dist = parse_len("3\"");
 

@@ -9,6 +9,9 @@ using JPMorrow.Revit.ConduitRuns;
 using JPMorrow.Tools.Diagnostics;
 using JPMorrow.Revit.Documents;
 using System.Windows.Forms;
+using JPMorrow.Revit.Tools.Params;
+using JPMorrow.Revit.Measurements;
+using JPMorrow.Revit.Jbox;
 
 namespace MainApp
 {
@@ -22,112 +25,129 @@ namespace MainApp
     [Autodesk.Revit.DB.Macros.AddInId("58F7B2B7-BF6D-4B39-BBF8-13F7D9AAE97E")]
 	public partial class ThisApplication : IExternalCommand
 	{
-		public Result Execute(ExternalCommandData cData, ref string message, ElementSet elements)
+        public Result Execute(ExternalCommandData cData, ref string message, ElementSet elements)
         {
-			string[] dataDirectories = new string[0];
-			bool debugApp = false;
+            var result = debugger.show_yesno(
+				header:"JBox To Largest Conduit Diameter", 
+				err:"This program will aid in tagging your " + 
+				"selected junction boxes with thier largest attached diameter conduit.\n\n" +
+				"After running this script, your junction boxes will have a new parameter on them called " +
+				"'Largest Attached Diameter'. You will need to load an electrical fixture tag into the model" + 
+				" and edit it to include that parameter. You may then tag your junction boxes with this tag to get the desired result.");
 
-			// set revit documents
-			ModelInfo revit_info = ModelInfo.StoreDocuments(cData, dataDirectories, debugApp);
-
-			// get user to select conduit
-            Reference selected_conduit = revit_info.UIDOC.Selection.PickObject(ObjectType.Element, new ConduitSelectionFilter(revit_info.DOC),  "Select a Conduit");
-
-			if(selected_conduit == null) return Result.Succeeded;
-
-			// separate first conduit from the rest
-			Element conToProp = revit_info.DOC.GetElement(selected_conduit);
-
-			// local functions
-			Parameter p(Element x, string str) => x.LookupParameter(str);
-			bool p_null(Element x, string str) => p(x, str) == null;
-
-			// check for parameters and quit if null
-			if (p_null(conToProp, "From") || p_null(conToProp, "To") ||
-				p_null(conToProp, "Wire Size") || p_null(conToProp, "Comments") || p_null(conToProp, "Set(s)"))
+			if(result == DialogResult.No)
 			{
-				debugger.show(
-					header: "Conduit To Jbox Params", sub: "Parameters",
-					err: "You do not have the 'To', 'From', 'Wire Size', or 'Set(s)' parameters loaded for conduits.");
-				return Result.Succeeded;
-			}
+                return Result.Succeeded;
+            }
 
-            List<ElementId> highlighted_elements = new List<ElementId>();
+            string[] dataDirectories = new string[0];
+            bool debugApp = false;
 
-            using (TransactionGroup tgx = new TransactionGroup(revit_info.DOC, "Propogating parameters"))
+            // set revit documents
+            ModelInfo revit_info = ModelInfo.StoreDocuments(cData, dataDirectories, debugApp);
+
+            // load shared parameters
+            DefinitionFile param_file = revit_info.DOC.Application.OpenSharedParameterFile();
+			
+			if(param_file == null)
 			{
-				tgx.Start();
-
-				using (Transaction tx = new Transaction(revit_info.DOC, "clear run id"))
+                debugger.show(
+					header:"JBox To Largest Conduit Diameter", 
+					err:"Shared parameter file not found. Please load " + 
+					"a shared parameter file and rerun this program.");
+                return Result.Succeeded;
+            }
+			
+			// check if shared parameter file has the parameter
+            bool generate_parameter = true;
+			foreach(var g in param_file.Groups)
+			{
+				if(g.Name.Equals("Electrical Fixtures"))
 				{
-					tx.Start();
-					RunNetwork rn = new RunNetwork(revit_info, conToProp);
-
-                    // add all runs for highlighting in model
-                    highlighted_elements.AddRange(rn.RunIds.Concat(rn.FittingIds).Select(x => new ElementId(x)));
-
-                    foreach(var id in rn.RunIds.Concat(rn.FittingIds)) 
+					foreach(var d in g.Definitions)
 					{
-						Element el = revit_info.DOC.GetElement(new ElementId(id));
-						p(el, "From").Set(		p(conToProp, "From").AsString());
-						p(el, "To").Set(		p(conToProp, "To").AsString());
-						p(el, "Wire Size").Set(	p(conToProp, "Wire Size").AsString());
-						p(el, "Comments").Set(	p(conToProp, "Comments").AsString());
-						p(el, "Set(s)").Set(	p(conToProp, "Set(s)").AsString());
-					}
-
-                    bool do_jboxes = false;
-					if(rn.ConnectedJboxIds.Count == 0)
-					{
-                        debugger.show(
-							header: "Conduit To Jbox Params", 
-							err: "There are no junction boxes attached to this conduit run. " + 
-							"No information will be pushed to a junction box.");
-                        do_jboxes = false;
-                    }
-					else if(rn.ConnectedJboxIds.Count > 1) 
-					{
-                        var result = debugger.show_yesno(
-							header: "Conduit To Jbox Params", 
-							err: "There is more than one junction box attached to this conduit run. " + 
-							"Would you like to push the parameters from the conduit run to both of the junction boxes?");
-
-						if(result == DialogResult.Yes) do_jboxes = true;
-                    }
-					else 
-					{
-                        do_jboxes = true;
-                    }
-
-					if(do_jboxes) 
-					{
-						var test_box = revit_info.DOC.GetElement(new ElementId(rn.ConnectedJboxIds.First()));
-						if (p_null(test_box, "From") || p_null(test_box, "To") ||
-							p_null(test_box, "Wire Size") || p_null(test_box, "Comments"))
-						{ 
-							debugger.show(
-								header: "Conduit To Jbox Params", sub: "Parameters",
-								err: "You do not have the 'To', 'From', or 'Wire Size' parameters loaded for electrical fixtures.");
-							do_jboxes = false;
-						}
-						
-                        foreach (var jbox in rn.ConnectedJboxIds) { 
-							Element el = revit_info.DOC.GetElement(new ElementId(jbox));
-							p(el, "From").Set(		p(conToProp, "From").AsString());
-							p(el, "To").Set(		p(conToProp, "To").AsString());
-							p(el, "Wire Size").Set(	p(conToProp, "Wire Size").AsString());
-							p(el, "Comments").Set(	p(conToProp, "Comments").AsString());
-                            highlighted_elements.Add(new ElementId(jbox));
+						if(d.Name.Equals("Largest Attached Diameter"))
+						{
+                            generate_parameter = false;
+                            break;
                         }
 					}
-
-                    tx.Commit();
-				}
-				tgx.Assimilate();
+                }
 			}
 
-			revit_info.UIDOC.Selection.SetElementIds(highlighted_elements.ToList());
-			return Result.Succeeded;
+            // check if the project parameters already has a parameter loaded by that name
+            var current_bindings = revit_info.UIAPP.ActiveUIDocument.Document.ParameterBindings;
+            var it = current_bindings.ForwardIterator();
+
+            while(it.MoveNext())
+			{
+                var d = it.Key;
+				if(d.Name.Equals("Largest Attached Diameter") && d.ParameterType == ParameterType.Length)
+				{
+                    generate_parameter = false;
+                    break;
+                }
+            }
+
+            if(generate_parameter)
+			{
+                using Transaction tx = new Transaction(revit_info.DOC, "Making Shared Parameter");
+                tx.Start();
+                var def_opts = new ExternalDefinitionCreationOptions("Largest Attached Diameter", ParameterType.Length);
+                def_opts.Visible = true;
+                var grp = param_file.Groups.Create("Electrical Fixtures");
+                var def = grp.Definitions.Create(def_opts) as ExternalDefinition;
+
+                // get categories
+                Category cat = revit_info.DOC.Settings.Categories.get_Item(BuiltInCategory.OST_ElectricalFixtures);
+                CategorySet set = revit_info.DOC.Application.Create.NewCategorySet();
+                set.Insert(cat);
+
+                // make instance binding (can also do type binding here)
+                var binding = revit_info.DOC.Application.Create.NewInstanceBinding(set);
+                revit_info.UIAPP.ActiveUIDocument.Document.ParameterBindings.Insert(def, binding);
+                tx.Commit();
+            }
+
+            // start processing junction boxes
+            var ids = revit_info.SEL.GetElementIds();
+            var jbis = JboxInfo.ParseId(revit_info.DOC, ids, out var f);
+
+            // get largest diameter for tagging
+            using TransactionGroup tgrp = new TransactionGroup(revit_info.DOC, "Jbox Parameters");
+            tgrp.Start();
+            foreach(var jbi in jbis)
+            {
+				var ld = jbi.Connections.GetLargestDiameter(revit_info.DOC, out var lc);
+				var len = RMeasure.LengthFromDbl(revit_info.DOC, ld);
+
+                // check the parameter 'Largest Attached Diameter'
+                ElementParamCheck pck = new ElementParamCheck(revit_info.DOC, jbi.JboxId, "Largest Attached Diameter");
+                var lad = pck.Get<double>("Largest Attached Diameter");
+				
+				if(!lad.IsLoaded)
+				{
+                    f.Add(new JboxError(jbi.JboxId, "'Largest Attached Diameter' parameter is not loaded"));
+                    continue;
+				}
+				
+				// set parameter in Revit
+				using Transaction tx = new Transaction(revit_info.DOC, "Setting Parameters");
+                tx.Start();
+                var box = revit_info.DOC.GetElement(jbi.JboxId);
+                pck.Set<double>(box, "Largest Attached Diameter", ld);
+                tx.Commit();
+            }
+            tgrp.Assimilate();
+
+			if(f.Any())
+			{
+                debugger.show(
+					header:"Jbox Tag Largest Diameter - Failed Jboxes", 
+					err:JboxError.FormatErrors(f));
+            }
+
+            return Result.Succeeded;
         }
 
 		#region startup

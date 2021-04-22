@@ -1,3 +1,8 @@
+/*
+    Author: Justin Morrow
+    Date Created: 4/21/2021
+    Description: A Module for formatting text to Revit display unit standards
+*/
 
 using Autodesk.Revit.DB;
 
